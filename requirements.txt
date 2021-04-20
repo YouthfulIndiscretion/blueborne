@@ -21,7 +21,7 @@ pathlib2==2.3.5
 pluggy==0.13.1
 psutil==5.6.7
 pwntools==3.13.0
-py==1.8.0
+py==1.10.0
 PyBluez==0.22
 pycparser==2.19
 pyelftools==0.25
