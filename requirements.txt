@@ -39,6 +39,6 @@ sortedcontainers==1.5.10
 toml==0.10.0
 tox==3.14.1
 unicorn==1.0.1
-urllib3==1.25.7
+urllib3==1.25.8
 virtualenv==16.7.8
 zipp==0.6.0
