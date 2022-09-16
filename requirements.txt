@@ -12,7 +12,7 @@ idna==2.8
 importlib-metadata==0.23
 intervaltree==2.1.0
 ipaddress==1.0.23
-Mako==1.1.0
+Mako==1.2.2
 MarkupSafe==1.1.1
 more-itertools==5.0.0
 packaging==19.2
